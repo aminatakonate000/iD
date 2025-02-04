@@ -22,7 +22,7 @@ export function coreValidator(context) {
   let _completeDiff = {};                     // complete diff base -> head of what the user changed
   let _headIsCurrent = false;
 
-  let _deferredRIC = new Set();   // Set( RequestIdleCallback handles )
+  let _deferredRIC = {};          // Object( RequestIdleCallback handle : rejectPromise method )
   let _deferredST = new Set();    // Set( SetTimeout handles )
   let _headPromise;               // Promise fulfilled when validation is performed up to headGraph snapshot
 
@@ -98,17 +98,18 @@ export function coreValidator(context) {
   //   `resetIgnored` - `true` to clear the list of user-ignored issues
   //
   function reset(resetIgnored) {
-    // cancel deferred work
-    _deferredRIC.forEach(window.cancelIdleCallback);
-    _deferredRIC.clear();
-    _deferredST.forEach(window.clearTimeout);
-    _deferredST.clear();
-
-    // empty queues and resolve any pending promise
+    // empty queues
     _baseCache.queue = [];
     _headCache.queue = [];
-    processQueue(_headCache);
-    processQueue(_baseCache);
+
+    // cancel deferred work and reject any pending promise
+    Object.keys(_deferredRIC).forEach(key => {
+      window.cancelIdleCallback(key);
+      _deferredRIC[key]();
+    });
+    _deferredRIC = {};
+    _deferredST.forEach(window.clearTimeout);
+    _deferredST.clear();
 
     // clear caches
     if (resetIgnored) _ignoredIssueIDs.clear();
@@ -189,16 +190,22 @@ export function coreValidator(context) {
     let seen = new Set();
     let results = [];
 
-    // collect head issues - caused by user edits
+    // collect head issues - present in the user edits
     if (_headCache.graph && _headCache.graph !== _baseCache.graph) {
       Object.values(_headCache.issuesByIssueID).forEach(issue => {
+        // In the head cache, only count features that the user is responsible for - #8632
+        // For example, a user can undo some work and an issue will still present in the
+        // head graph, but we don't want to credit the user for causing that issue.
+        const userModified = (issue.entityIds || []).some(id => _completeDiff.hasOwnProperty(id));
+        if (opts.what === 'edited' && !userModified) return;   // present in head but user didn't touch it
+
         if (!filter(issue)) return;
         seen.add(issue.id);
         results.push(issue);
       });
     }
 
-    // collect base issues - not caused by user edits
+    // collect base issues - present before user edits
     if (opts.what === 'all') {
       Object.values(_baseCache.issuesByIssueID).forEach(issue => {
         if (!filter(issue)) return;
@@ -488,10 +495,10 @@ export function coreValidator(context) {
     _headCache.graph = currGraph;  // take snapshot
     _completeDiff = context.history().difference().complete();
     const incrementalDiff = coreDifference(prevGraph, currGraph);
-    const entityIDs = Object.keys(incrementalDiff.complete());
+    let entityIDs = Object.keys(incrementalDiff.complete());
+    entityIDs = _headCache.withAllRelatedEntities(entityIDs);  // expand set
 
-    // if (!entityIDs.size) {
-    if (!entityIDs.length) {
+    if (!entityIDs.size) {
       dispatch.call('validated');
       return Promise.resolve();
     }
@@ -540,8 +547,8 @@ export function coreValidator(context) {
       if (!_headCache.graph) _headCache.graph = baseGraph;
       if (!_baseCache.graph) _baseCache.graph = baseGraph;
 
-      const entityIDs = entities.map(entity => entity.id);
-      // entityIDs = entityIDsToValidate(entityIDs, baseGraph);  // expand set
+      let entityIDs = entities.map(entity => entity.id);
+      entityIDs = _baseCache.withAllRelatedEntities(entityIDs);  // expand set
       validateEntitiesAsync(entityIDs, _baseCache);
     });
 
@@ -629,7 +636,7 @@ export function coreValidator(context) {
   // - the user did something to one of the entities involved in the issue
   //
   // Arguments
-  //   `entityIDs` - Array containing entity IDs.
+  //   `entityIDs` - Array or Set containing entity IDs.
   //
   function updateResolvedIssues(entityIDs) {
     entityIDs.forEach(entityID => {
@@ -656,7 +663,7 @@ export function coreValidator(context) {
   // Schedule validation for many entities.
   //
   // Arguments
-  //   `entityIDs` - Array containing entity IDs.
+  //   `entityIDs` - Array or Set containing entityIDs.
   //   `graph` - the graph to validate that contains those entities
   //   `cache` - the cache to store results in (_headCache or _baseCache)
   //
@@ -666,13 +673,14 @@ export function coreValidator(context) {
   //
   function validateEntitiesAsync(entityIDs, cache) {
     // Enqueue the work
-    const jobs = entityIDs.map(entityID => {
+    const jobs = Array.from(entityIDs).map(entityID => {
       if (cache.queuedEntityIDs.has(entityID)) return null;  // queued already
       cache.queuedEntityIDs.add(entityID);
 
+      // Clear caches for existing issues related to this entity
+      cache.uncacheEntityID(entityID);
+
       return () => {
-        // Clear caches for existing issues related to this entity
-        cache.uncacheEntityID(entityID);
         cache.queuedEntityIDs.delete(entityID);
 
         const graph = cache.graph;
@@ -680,11 +688,6 @@ export function coreValidator(context) {
 
         const entity = graph.hasEntity(entityID);   // Sanity check: don't validate deleted entities
         if (!entity) return;
-
-        // In the head cache, only validate features that the user is responsible for - #8632
-        // For example, a user can undo some work and an issue will still present in the
-        // head graph, but we don't want to credit the user for causing that issue.
-        if (cache.which === 'head' && !_completeDiff.hasOwnProperty(entityID)) return;
 
         // detect new issues and update caches
         const result = validateEntity(entity, graph);
@@ -752,16 +755,16 @@ export function coreValidator(context) {
     if (!cache.queue.length) return Promise.resolve();  // we're done
     const chunk = cache.queue.pop();
 
-    return new Promise(resolvePromise => {
+    return new Promise((resolvePromise, rejectPromise) => {
         const handle = window.requestIdleCallback(() => {
-          _deferredRIC.delete(handle);
+          delete (_deferredRIC[handle]);
           // const t0 = performance.now();
           chunk.forEach(job => job());
           // const t1 = performance.now();
           // console.log('chunk processed in ' + (t1 - t0) + ' ms');
           resolvePromise();
         });
-        _deferredRIC.add(handle);
+        _deferredRIC[handle] = rejectPromise;
       })
       .then(() => { // dispatch an event sometimes to redraw various UI things
         if (cache.queue.length % 25 === 0) dispatch.call('validated');
@@ -795,24 +798,20 @@ function validationCache(which) {
     issuesByEntityID: {}  // entity.id -> Set(issue.id)
   };
 
-  cache.cacheIssues = (issues) => {
-    issues.forEach(issue => {
-      const entityIDs = issue.entityIds || [];
-      entityIDs.forEach(entityID => {
-        if (!cache.issuesByEntityID[entityID]) {
-          cache.issuesByEntityID[entityID] = new Set();
-        }
-        cache.issuesByEntityID[entityID].add(issue.id);
-      });
-      cache.issuesByIssueID[issue.id] = issue;
+
+  cache.cacheIssue = (issue) => {
+    (issue.entityIds || []).forEach(entityID => {
+      if (!cache.issuesByEntityID[entityID]) {
+        cache.issuesByEntityID[entityID] = new Set();
+      }
+      cache.issuesByEntityID[entityID].add(issue.id);
     });
+    cache.issuesByIssueID[issue.id] = issue;
   };
 
+
   cache.uncacheIssue = (issue) => {
-    // When multiple entities are involved (e.g. crossing_ways),
-    // remove this issue from the other entity caches too..
-    const entityIDs = issue.entityIds || [];
-    entityIDs.forEach(entityID => {
+    (issue.entityIds || []).forEach(entityID => {
       if (cache.issuesByEntityID[entityID]) {
         cache.issuesByEntityID[entityID].delete(issue.id);
       }
@@ -820,9 +819,16 @@ function validationCache(which) {
     delete cache.issuesByIssueID[issue.id];
   };
 
+
+  cache.cacheIssues = (issues) => {
+    issues.forEach(cache.cacheIssue);
+  };
+
+
   cache.uncacheIssues = (issues) => {
     issues.forEach(cache.uncacheIssue);
   };
+
 
   cache.uncacheIssuesOfType = (type) => {
     const issuesOfType = Object.values(cache.issuesByIssueID)
@@ -830,15 +836,16 @@ function validationCache(which) {
     cache.uncacheIssues(issuesOfType);
   };
 
+
   // Remove a single entity and all its related issues from the caches
   cache.uncacheEntityID = (entityID) => {
-    const issueIDs = cache.issuesByEntityID[entityID];
-    if (issueIDs) {
-      issueIDs.forEach(issueID => {
+    const entityIssueIDs = cache.issuesByEntityID[entityID];
+    if (entityIssueIDs) {
+      entityIssueIDs.forEach(issueID => {
         const issue = cache.issuesByIssueID[issueID];
         if (issue) {
           cache.uncacheIssue(issue);
-        } else {
+        } else {  // shouldn't happen, clean up
           delete cache.issuesByIssueID[issueID];
         }
       });
@@ -846,6 +853,33 @@ function validationCache(which) {
 
     delete cache.issuesByEntityID[entityID];
     cache.provisionalEntityIDs.delete(entityID);
+  };
+
+
+  // Return the expandeded set of entityIDs related to issues for the given entityIDs
+  //
+  // Arguments
+  //   `entityIDs` - Array or Set containing entityIDs.
+  //
+  cache.withAllRelatedEntities = (entityIDs) => {
+    let result = new Set();
+    (entityIDs || []).forEach(entityID => {
+      result.add(entityID);  // include self
+
+      const entityIssueIDs = cache.issuesByEntityID[entityID];
+      if (entityIssueIDs) {
+        entityIssueIDs.forEach(issueID => {
+          const issue = cache.issuesByIssueID[issueID];
+          if (issue) {
+            (issue.entityIds || []).forEach(relatedID => result.add(relatedID));
+          } else {  // shouldn't happen, clean up
+            delete cache.issuesByIssueID[issueID];
+          }
+        });
+      }
+    });
+
+    return result;
   };
 
 

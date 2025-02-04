@@ -24,7 +24,7 @@ export function uiSectionEntityIssues(context) {
             return _issues.length > 0;
         })
         .label(function() {
-            return t('inspector.title_count', { title: t.html('issues.list_title'), count: _issues.length });
+            return t.append('inspector.title_count', { title: t('issues.list_title'), count: _issues.length });
         })
         .disclosureContent(renderDisclosureContent);
 
@@ -55,7 +55,7 @@ export function uiSectionEntityIssues(context) {
         _activeIssueID = _issues.length > 0 ? _issues[0].id : null;
 
         var containers = selection.selectAll('.issue-container')
-            .data(_issues, function(d) { return d.id; });
+            .data(_issues, function(d) { return d.key; });
 
         // Exit
         containers.exit()
@@ -169,7 +169,7 @@ export function uiSectionEntityIssues(context) {
                         .call(d.reference);
                 } else {
                     d3_select(this)
-                        .html(t.html('inspector.no_documentation_key'));
+                        .call(t.append('inspector.no_documentation_key'));
                 }
             });
 
@@ -180,8 +180,9 @@ export function uiSectionEntityIssues(context) {
             .classed('active', function(d) { return d.id === _activeIssueID; });
 
         containers.selectAll('.issue-message')
-            .html(function(d) {
-                return d.message(context);
+            .text('')
+            .each(function(d) {
+                return d.message(context)(d3_select(this));
             });
 
         // fixes
@@ -242,7 +243,7 @@ export function uiSectionEntityIssues(context) {
         buttons
             .append('span')
             .attr('class', 'fix-message')
-            .html(function(d) { return d.title; });
+            .each(function(d) { return d.title(d3_select(this)); });
 
         fixesEnter.merge(fixes)
             .selectAll('button')

@@ -27,7 +27,6 @@ var readOnlyTags = [
     /^resolved:/,
     /^closed:note$/,
     /^closed:keepright$/,
-    /^closed:improveosm:/,
     /^closed:osmose:/
 ];
 
@@ -155,12 +154,6 @@ export function uiCommit(context) {
                 tags['closed:keepright'] = context.cleanTagValue(krClosed.join(';'));
             }
         }
-        if (services.improveOSM) {
-            var iOsmClosed = services.improveOSM.getClosedCounts();
-            for (itemType in iOsmClosed) {
-                tags['closed:improveosm:' + itemType] = context.cleanTagValue(iOsmClosed[itemType].toString());
-            }
-        }
         if (services.osmose) {
             var osmoseClosed = services.osmose.getClosedCounts();
             for (itemType in osmoseClosed) {
@@ -220,12 +213,13 @@ export function uiCommit(context) {
 
         headerTitle
             .append('div')
-            .append('h3')
-            .html(t.html('commit.title'));
+            .append('h2')
+            .call(t.append('commit.title'));
 
         headerTitle
             .append('button')
             .attr('class', 'close')
+            .attr('title', t('icons.close'))
             .on('click', function() {
                 dispatch.call('cancel', this);
             })
@@ -279,7 +273,7 @@ export function uiCommit(context) {
         prose = prose.enter()
             .append('p')
             .attr('class', 'commit-info')
-            .html(t.html('commit.upload_explanation'))
+            .call(t.append('commit.upload_explanation'))
             .merge(prose);
 
         // always check if this has changed, but only update prose.html()
@@ -302,12 +296,12 @@ export function uiCommit(context) {
             userLink
                 .append('a')
                 .attr('class', 'user-info')
-                .html(user.display_name)
+                .text(user.display_name)
                 .attr('href', osm.userURL(user.display_name))
                 .attr('target', '_blank');
 
             prose
-                .html(t.html('commit.upload_explanation_with_user', { user: userLink.html() }));
+                .html(t.html('commit.upload_explanation_with_user', { user: { html: userLink.html() } }));
         });
 
 
@@ -328,7 +322,9 @@ export function uiCommit(context) {
 
         if (!labelEnter.empty()) {
             labelEnter
-                .call(uiTooltip().title(t.html('commit.request_review_info')).placement('top'));
+                .call(uiTooltip()
+                    .title(() => t.append('commit.request_review_info'))
+                    .placement('top'));
         }
 
         labelEnter
@@ -338,7 +334,7 @@ export function uiCommit(context) {
 
         labelEnter
             .append('span')
-            .html(t.html('commit.request_review'));
+            .call(t.append('commit.request_review'));
 
         // Update
         requestReview = requestReview
@@ -363,7 +359,7 @@ export function uiCommit(context) {
             .attr('class', 'secondary-action button cancel-button')
             .append('span')
             .attr('class', 'label')
-            .html(t.html('commit.cancel'));
+            .call(t.append('commit.cancel'));
 
         var uploadButton = buttonEnter
             .append('button')
@@ -371,7 +367,7 @@ export function uiCommit(context) {
 
         uploadButton.append('span')
             .attr('class', 'label')
-            .html(t.html('commit.save'));
+            .call(t.append('commit.save'));
 
         var uploadBlockerTooltipText = getUploadBlockerMessage();
 
@@ -404,7 +400,9 @@ export function uiCommit(context) {
 
         if (uploadBlockerTooltipText) {
             buttonSection.selectAll('.save-button')
-                .call(uiTooltip().title(uploadBlockerTooltipText).placement('top'));
+                .call(uiTooltip()
+                    .title(() => uploadBlockerTooltipText)
+                    .placement('top'));
         }
 
         // Raw Tag Editor
@@ -452,12 +450,11 @@ export function uiCommit(context) {
             .getIssuesBySeverity({ what: 'edited', where: 'all' }).error;
 
         if (errors.length) {
-            return t('commit.outstanding_errors_message', { count: errors.length });
-
+            return t.append('commit.outstanding_errors_message', { count: errors.length });
         } else {
             var hasChangesetComment = context.changeset && context.changeset.tags.comment && context.changeset.tags.comment.trim().length;
             if (!hasChangesetComment) {
-                return t('commit.comment_needed_message');
+                return t.append('commit.comment_needed_message');
             }
         }
         return null;

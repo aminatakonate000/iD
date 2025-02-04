@@ -327,7 +327,7 @@ export function modeSelect(context, selectedIDs) {
                         .duration(4000)
                         .iconName('#iD-operation-' + moveOp.id)
                         .iconClass('operation disabled')
-                        .label(moveOp.tooltip)();
+                        .label(moveOp.tooltip())();
                 } else {
                     context.perform(actionMove(selectedIDs, delta, context.projection), moveOp.annotation());
                     context.validator().validate();
@@ -400,7 +400,7 @@ export function modeSelect(context, selectedIDs) {
                         .duration(4000)
                         .iconName('#iD-icon-no')
                         .iconClass('operation disabled')
-                        .label(t('operations.scale.' + disabled + '.' + multi))();
+                        .label(t.append('operations.scale.' + disabled + '.' + multi))();
                 } else {
                     const pivot = context.projection(extent.center());
                     const annotation = t('operations.scale.annotation.' + (isUp ? 'up' : 'down') + '.feature', { n: selectedIDs.length });
@@ -429,11 +429,14 @@ export function modeSelect(context, selectedIDs) {
                     actionAddMidpoint({ loc: choice.loc, edge: [prev, next] }, osmNode()),
                     t('operations.add.annotation.vertex')
                 );
+                context.validator().validate();
 
             } else if (entity.type === 'midpoint') {
                 context.perform(
                     actionAddMidpoint({ loc: entity.loc, edge: entity.edge }, osmNode()),
-                    t('operations.add.annotation.vertex'));
+                    t('operations.add.annotation.vertex')
+                );
+                context.validator().validate();
             }
         }
 
@@ -688,6 +691,7 @@ export function modeSelect(context, selectedIDs) {
             // the user added this relation but didn't edit it at all, so just delete it
             var deleteAction = actionDeleteRelation(entity.id, true /* don't delete untagged members */);
             context.perform(deleteAction, t('operations.delete.annotation.relation'));
+            context.validator().validate();
         }
     };
 

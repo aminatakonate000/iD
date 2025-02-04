@@ -3,8 +3,10 @@ import { select as d3_select } from 'd3-selection';
 
 import { resolveStrings } from 'osm-community-index';
 
+import { showDonationMessage } from '../../config/id.js';
+
 import { fileFetcher } from '../core/file_fetcher';
-import { locationManager } from '../core/locations';
+import { locationManager } from '../core/LocationManager';
 import { t, localizer } from '../core/localizer';
 
 import { svgIcon } from '../svg/icon';
@@ -71,7 +73,7 @@ export function uiSuccess(context) {
     }
 
     const parsed = new Date(raw);
-    return new Date(parsed.toUTCString().substr(0, 25));  // convert to local timezone
+    return new Date(parsed.toUTCString().slice(0, 25));  // convert to local timezone
   }
 
 
@@ -81,12 +83,13 @@ export function uiSuccess(context) {
       .attr('class', 'header fillL');
 
     header
-      .append('h3')
-      .html(t.html('success.just_edited'));
+      .append('h2')
+      .call(t.append('success.just_edited'));
 
     header
       .append('button')
       .attr('class', 'close')
+      .attr('title', t('icons.close'))
       .on('click', () => dispatch.call('cancel'))
       .call(svgIcon('#iD-icon-close'));
 
@@ -100,18 +103,18 @@ export function uiSuccess(context) {
 
     summary
       .append('h3')
-      .html(t.html('success.thank_you' + (_location ? '_location' : ''), { where: _location }));
+      .call(t.append('success.thank_you' + (_location ? '_location' : ''), { where: _location }));
 
     summary
       .append('p')
-      .html(t.html('success.help_html'))
+      .call(t.append('success.help_html'))
       .append('a')
       .attr('class', 'link-out')
       .attr('target', '_blank')
       .attr('href', t('success.help_link_url'))
       .call(svgIcon('#iD-icon-out-link', 'inline'))
       .append('span')
-      .html(t.html('success.help_link_text'));
+      .call(t.append('success.help_link_text'));
 
     let osm = context.connection();
     if (!osm) return;
@@ -146,25 +149,74 @@ export function uiSuccess(context) {
       .attr('class', 'cell-detail summary-view-on-osm')
       .attr('target', '_blank')
       .attr('href', changesetURL)
-      .html(t.html('success.view_on_osm'));
+      .call(t.append('success.view_on_osm'));
 
     summaryDetail
       .append('div')
       .html(t.html('success.changeset_id', {
-        changeset_id: `<a href="${changesetURL}" target="_blank">${_changeset.id}</a>`
+        changeset_id: { html: `<a href="${changesetURL}" target="_blank">${_changeset.id}</a>` }
       }));
 
+    if (showDonationMessage !== false) {
+      // support ask
+      const donationUrl = 'https://supporting.openstreetmap.org/';
+      let supporting = body
+        .append('div')
+        .attr('class', 'save-supporting');
+
+      supporting
+        .append('h3')
+        .call(t.append('success.supporting.title'));
+
+      supporting
+        .append('p')
+        .call(t.append('success.supporting.details'));
+
+      table = supporting
+        .append('table')
+        .attr('class', 'supporting-table');
+
+      row = table
+        .append('tr')
+        .attr('class', 'supporting-row');
+
+      row
+        .append('td')
+        .attr('class', 'cell-icon supporting-icon')
+        .append('a')
+        .attr('target', '_blank')
+        .attr('href', donationUrl)
+        .append('svg')
+        .attr('class', 'logo-small')
+        .append('use')
+        .attr('xlink:href', '#iD-donation');
+
+      let supportingDetail = row
+        .append('td')
+        .attr('class', 'cell-detail supporting-detail');
+
+      supportingDetail
+        .append('a')
+        .attr('class', 'cell-detail support-the-map')
+        .attr('target', '_blank')
+        .attr('href', donationUrl)
+        .call(t.append('success.supporting.donation.title'));
+
+      supportingDetail
+        .append('div')
+        .call(t.append('success.supporting.donation.details'));
+    }
 
     // Get OSM community index features intersecting the map..
     ensureOSMCommunityIndex()
       .then(oci => {
         const loc = context.map().center();
-        const validLocations = locationManager.locationsAt(loc);
+        const validHere = locationManager.locationSetsAt(loc);
 
         // Gather the communities
         let communities = [];
         oci.resources.forEach(resource => {
-          let area = validLocations[resource.locationSetID];
+          let area = validHere[resource.locationSetID];
           if (!area) return;
 
           // Resolve strings
@@ -194,7 +246,7 @@ export function uiSuccess(context) {
 
     communityLinks
       .append('h3')
-      .html(t.html('success.like_osm'));
+      .call(t.append('success.like_osm'));
 
     let table = communityLinks
       .append('table')
@@ -228,14 +280,14 @@ export function uiSuccess(context) {
     communityLinks
       .append('div')
       .attr('class', 'community-missing')
-      .html(t.html('success.missing'))
+      .call(t.append('success.missing'))
       .append('a')
       .attr('class', 'link-out')
       .attr('target', '_blank')
       .call(svgIcon('#iD-icon-out-link', 'inline'))
       .attr('href', 'https://github.com/osmlab/osm-community-index/issues')
       .append('span')
-      .html(t.html('success.tell_us'));
+      .call(t.append('success.tell_us'));
   }
 
 
@@ -260,7 +312,7 @@ export function uiSuccess(context) {
         .call(uiDisclosure(context, `community-more-${d.id}`, false)
           .expanded(false)
           .updatePreference(false)
-          .label(t.html('success.more'))
+          .label(() => t.append('success.more'))
           .content(showMore)
         );
     }
@@ -292,7 +344,7 @@ export function uiSuccess(context) {
         .select('.hide-toggle')
         .append('span')
         .attr('class', 'badge-text')
-        .html(nextEvents.length);
+        .text(nextEvents.length);
     }
 
 
@@ -319,7 +371,7 @@ export function uiSuccess(context) {
         moreEnter
           .append('div')
           .attr('class', 'community-languages')
-          .html(t.html('success.languages', { languages: languageList }));
+          .call(t.append('success.languages', { languages: languageList }));
       }
     }
 
@@ -342,7 +394,7 @@ export function uiSuccess(context) {
         .append('a')
         .attr('target', '_blank')
         .attr('href', d => d.url)
-        .html(d => {
+        .text(d => {
           let name = d.name;
           if (d.i18n && d.id) {
             name = t(`community.${communityID}.events.${d.id}.name`, { default: name });
@@ -353,7 +405,7 @@ export function uiSuccess(context) {
       itemEnter
         .append('div')
         .attr('class', 'community-event-when')
-        .html(d => {
+        .text(d => {
           let options = { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' };
           if (d.date.getHours() || d.date.getMinutes()) {   // include time if it has one
             options.hour = 'numeric';
@@ -365,7 +417,7 @@ export function uiSuccess(context) {
       itemEnter
         .append('div')
         .attr('class', 'community-event-where')
-        .html(d => {
+        .text(d => {
           let where = d.where;
           if (d.i18n && d.id) {
             where = t(`community.${communityID}.events.${d.id}.where`, { default: where });
@@ -376,7 +428,7 @@ export function uiSuccess(context) {
       itemEnter
         .append('div')
         .attr('class', 'community-event-description')
-        .html(d => {
+        .text(d => {
           let description = d.description;
           if (d.i18n && d.id) {
             description = t(`community.${communityID}.events.${d.id}.description`, { default: description });

@@ -15,7 +15,7 @@ describe('iD.uiFieldLocalized', function() {
     });
 
     beforeEach(function() {
-        context = iD.coreContext().init();
+        context = iD.coreContext().assetPath('../dist/').init();
         selection = d3.select(document.createElement('div'));
         field = iD.presetField('name', { key: 'name', type: 'localized' });
         field.locked = function() { return false; };
@@ -165,5 +165,15 @@ describe('iD.uiFieldLocalized', function() {
             happen.once(selection.selectAll('.localized-value').node(), {type: 'change'});
             done();
         }, 20);
+    });
+
+    it('has a lang attribute on an existing multilingual name field', function(done) {
+      var localized = iD.uiFieldLocalized(field, context);
+      localized.tags({'name:de': 'Value'});
+      window.setTimeout(function() {
+        selection.call(localized);
+        expect(selection.selectAll('.localized-value').attr('lang')).to.eql('de');
+        done();
+      }, 20);
     });
 });
